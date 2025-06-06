@@ -1,0 +1,265 @@
+name: Build and Deploy to Digital Ocean
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      deploy_target:
+        description: 'Deployment target'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+        - production
+        - staging
+
+env:
+  NODE_VERSION: '18'
+  JAVA_VERSION: '11'
+
+jobs:
+  build-jitsi-meet:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: 'jitsi-meet/package-lock.json'
+        
+    - name: Install jitsi-meet dependencies
+      working-directory: ./jitsi-meet
+      run: npm ci
+      
+    - name: Build jitsi-meet
+      working-directory: ./jitsi-meet
+      run: npm run build
+        
+    - name: Create jitsi-meet build artifact
+      run: |
+        cd jitsi-meet
+        tar -czf ../jitsi-meet-build.tar.gz \
+          --exclude=node_modules \
+          --exclude=.git \
+          --exclude=android \
+          --exclude=ios \
+          .
+          
+    - name: Upload jitsi-meet artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: jitsi-meet-build
+        path: jitsi-meet-build.tar.gz
+        retention-days: 7
+
+  build-jibri:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ env.JAVA_VERSION }}
+        distribution: 'temurin'
+        
+    - name: Cache Maven dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+        
+    - name: Build jibri
+      working-directory: ./jibri
+      run: mvn clean package -DskipTests
+        
+    - name: Create jibri build artifact
+      run: |
+        cd jibri
+        tar -czf ../jibri-build.tar.gz \
+          --exclude=.git \
+          --exclude=target/surefire-reports \
+          --exclude=target/test-classes \
+          target/ \
+          resources/ \
+          src/
+          
+    - name: Upload jibri artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: jibri-build
+        path: jibri-build.tar.gz
+        retention-days: 7
+
+  deploy:
+    needs: [build-jitsi-meet, build-jibri]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download jitsi-meet artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: jitsi-meet-build
+        
+    - name: Download jibri artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: jibri-build
+        
+    - name: Setup SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.DROPLET_SSH_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ secrets.DROPLET_HOST }} >> ~/.ssh/known_hosts
+        
+    - name: Deploy to droplet
+      run: |
+        # Create deployment script
+        cat > deploy.sh << 'EOF'
+        #!/bin/bash
+        set -e
+        
+        echo "🚀 Starting deployment to Digital Ocean droplet..."
+        
+        # Variables
+        JITSI_DIR="/opt/jitsi-meet"
+        JIBRI_DIR="/opt/jitsi/jibri"
+        BACKUP_DIR="/opt/backups/$(date +%Y%m%d_%H%M%S)"
+        
+        # Create backup
+        echo "📦 Creating backup directory: $BACKUP_DIR"
+        sudo mkdir -p $BACKUP_DIR
+        sudo cp -r $JITSI_DIR $BACKUP_DIR/jitsi-meet-backup 2>/dev/null || echo "No existing jitsi-meet found"
+        sudo cp -r $JIBRI_DIR $BACKUP_DIR/jibri-backup 2>/dev/null || echo "No existing jibri found"
+        
+        # Stop services
+        echo "⏹️ Stopping services..."
+        sudo systemctl stop jitsi-videobridge2 || true
+        sudo systemctl stop jicofo || true
+        sudo systemctl stop jibri || true
+        sudo systemctl stop prosody || true
+        sudo systemctl stop nginx || true
+        
+        # Deploy applications
+        echo "🔄 Deploying jitsi-meet..."
+        sudo mkdir -p $JITSI_DIR
+        sudo tar -xzf /tmp/jitsi-meet-build.tar.gz -C $JITSI_DIR
+        sudo chown -R root:root $JITSI_DIR
+        
+        echo "🔄 Deploying jibri..."
+        sudo mkdir -p $JIBRI_DIR
+        sudo tar -xzf /tmp/jibri-build.tar.gz -C $JIBRI_DIR
+        sudo chown -R jibri:jibri $JIBRI_DIR
+        
+        # Start services
+        echo "▶️ Starting services..."
+        sudo systemctl start prosody
+        sleep 2
+        sudo systemctl start jicofo
+        sleep 2
+        sudo systemctl start jitsi-videobridge2
+        sleep 2
+        sudo systemctl start jibri
+        sleep 2
+        sudo systemctl start nginx
+        
+        # Health check
+        echo "🏥 Performing health check..."
+        sleep 10
+        if curl -f -s "http://localhost" > /dev/null; then
+          echo "✅ Jitsi Meet is responding"
+        else
+          echo "❌ Jitsi Meet health check failed"
+          exit 1
+        fi
+        
+        if sudo systemctl is-active --quiet jibri; then
+          echo "✅ Jibri service is running"
+        else
+          echo "❌ Jibri service failed to start"
+          exit 1
+        fi
+        
+        echo "🎉 Deployment completed successfully!"
+        echo "📋 Backup location: $BACKUP_DIR"
+        EOF
+        
+        chmod +x deploy.sh
+        
+        echo "📤 Copying files to droplet..."
+        scp -o StrictHostKeyChecking=no \
+          jitsi-meet-build.tar.gz \
+          jibri-build.tar.gz \
+          deploy.sh \
+          ${{ secrets.DROPLET_USER }}@${{ secrets.DROPLET_HOST }}:/tmp/
+          
+        echo "🚀 Executing deployment on droplet..."
+        ssh -o StrictHostKeyChecking=no \
+          ${{ secrets.DROPLET_USER }}@${{ secrets.DROPLET_HOST }} \
+          "chmod +x /tmp/deploy.sh && sudo /tmp/deploy.sh"
+          
+    - name: Cleanup
+      if: always()
+      run: |
+        rm -f ~/.ssh/id_rsa
+        ssh ${{ secrets.DROPLET_USER }}@${{ secrets.DROPLET_HOST }} \
+          "sudo rm -f /tmp/jitsi-meet-build.tar.gz /tmp/jibri-build.tar.gz /tmp/deploy.sh" || true
+
+  test-deployment:
+    needs: [deploy]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - name: Test Jitsi Meet endpoint
+      run: |
+        echo "🧪 Testing Jitsi Meet deployment..."
+        response=$(curl -s -o /dev/null -w "%{http_code}" "http://${{ secrets.DROPLET_HOST }}")
+        if [ "$response" = "200" ]; then
+          echo "✅ Jitsi Meet is accessible"
+        else
+          echo "❌ Jitsi Meet test failed (HTTP $response)"
+          exit 1
+        fi
+        
+    - name: Test audio recording feature
+      run: |
+        echo "🎵 Testing audio recording feature..."
+        curl -s "http://${{ secrets.DROPLET_HOST }}/config.js" | \
+          grep -q "audiorecording" && \
+          echo "✅ Audio recording configuration found" || \
+          echo "⚠️ Audio recording configuration not found"
+
+  notify:
+    needs: [test-deployment]
+    runs-on: ubuntu-latest
+    if: always() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+    
+    steps:
+    - name: Deployment notification
+      run: |
+        if [ "${{ needs.test-deployment.result }}" = "success" ]; then
+          echo "🎉 Deployment successful!"
+          echo "🌐 Jitsi Meet: http://${{ secrets.DROPLET_HOST }}"
+          echo "🎵 Audio recording feature deployed"
+        else
+          echo "❌ Deployment failed!"
+          echo "📋 Check the logs above for details"
+          exit 1
+        fi
