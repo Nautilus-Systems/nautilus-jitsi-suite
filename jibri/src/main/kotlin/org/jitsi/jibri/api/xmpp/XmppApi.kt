@@ -19,6 +19,7 @@ package org.jitsi.jibri.api.xmpp
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
+import org.jitsi.jibri.AudioRecordingRequestParams
 import org.jitsi.jibri.FileRecordingRequestParams
 import org.jitsi.jibri.JibriBusyException
 import org.jitsi.jibri.JibriManager
@@ -373,12 +374,25 @@ class XmppApi(
 
         when (startIq.mode()) {
             JibriMode.FILE -> {
-                jibriManager.startFileRecording(
-                    serviceParams,
-                    FileRecordingRequestParams(callParams, startIq.sessionId, xmppEnvironment.callLogin),
-                    environmentContext,
-                    serviceStatusHandler
-                )
+                // Check if this is an audio-only recording request
+                val isAudioOnly = appData?.fileRecordingMetadata?.get("audioOnly") == true ||
+                    startIq.streamId?.contains("audioOnly=true") == true
+                
+                if (isAudioOnly) {
+                    jibriManager.startAudioRecording(
+                        serviceParams,
+                        AudioRecordingRequestParams(callParams, startIq.sessionId, xmppEnvironment.callLogin),
+                        environmentContext,
+                        serviceStatusHandler
+                    )
+                } else {
+                    jibriManager.startFileRecording(
+                        serviceParams,
+                        FileRecordingRequestParams(callParams, startIq.sessionId, xmppEnvironment.callLogin),
+                        environmentContext,
+                        serviceStatusHandler
+                    )
+                }
             }
             JibriMode.STREAM -> {
                 val rtmpUrl = if (startIq.streamId.isRtmpUrl()) {

@@ -25,6 +25,8 @@ import org.jitsi.jibri.selenium.CallParams
 import org.jitsi.jibri.service.JibriService
 import org.jitsi.jibri.service.JibriServiceStatusHandler
 import org.jitsi.jibri.service.ServiceParams
+import org.jitsi.jibri.service.impl.AudioRecordingJibriService
+import org.jitsi.jibri.service.impl.AudioRecordingParams
 import org.jitsi.jibri.service.impl.FileRecordingJibriService
 import org.jitsi.jibri.service.impl.FileRecordingParams
 import org.jitsi.jibri.service.impl.SipGatewayJibriService
@@ -51,6 +53,25 @@ class JibriBusyException : Exception()
  * models the subset of values which will come in the request.
  */
 data class FileRecordingRequestParams(
+    /**
+     * Which call we'll join
+     */
+    val callParams: CallParams,
+    /**
+     * The ID of this session
+     */
+    val sessionId: String,
+    /**
+     * The login information needed to appear invisible in
+     * the call
+     */
+    val callLoginParams: XmppCredentials
+)
+
+/**
+ * Similar to [FileRecordingRequestParams] but for audio-only recording requests
+ */
+data class AudioRecordingRequestParams(
     /**
      * Which call we'll join
      */
@@ -132,6 +153,30 @@ class JibriManager : StatusPublisher<Any>() {
                 fileRecordingRequestParams.sessionId,
                 fileRecordingRequestParams.callLoginParams,
                 serviceParams.appData?.fileRecordingMetadata
+            )
+        )
+        jibriMetrics.start(RecordingSinkType.FILE)
+        startService(service, serviceParams, environmentContext, serviceStatusHandler)
+    }
+
+    /**
+     * Starts an [AudioRecordingJibriService] to record only the audio
+     * of the call described in the params to a file.
+     */
+    @Synchronized
+    fun startAudioRecording(
+        serviceParams: ServiceParams,
+        audioRecordingRequestParams: AudioRecordingRequestParams,
+        environmentContext: EnvironmentContext? = null,
+        serviceStatusHandler: JibriServiceStatusHandler? = null
+    ) {
+        throwIfBusy(RecordingSinkType.FILE)
+        logger.info("Starting an audio recording with params: $audioRecordingRequestParams")
+        val service = AudioRecordingJibriService(
+            AudioRecordingParams(
+                audioRecordingRequestParams.callParams,
+                audioRecordingRequestParams.sessionId,
+                audioRecordingRequestParams.callLoginParams
             )
         )
         jibriMetrics.start(RecordingSinkType.FILE)
@@ -287,6 +332,7 @@ class JibriManager : StatusPublisher<Any>() {
 }
 
 private fun JibriService.getSinkType() = when (this) {
+    is AudioRecordingJibriService -> RecordingSinkType.FILE
     is FileRecordingJibriService -> RecordingSinkType.FILE
     is StreamingJibriService -> RecordingSinkType.GATEWAY
     is SipGatewayJibriService -> RecordingSinkType.GATEWAY
