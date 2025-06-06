@@ -41,7 +41,7 @@ jobs:
       
     - name: Build jitsi-meet
       working-directory: ./jitsi-meet
-      run: npm run build
+      run: make all
         
     - name: Create jitsi-meet build artifact
       run: |
