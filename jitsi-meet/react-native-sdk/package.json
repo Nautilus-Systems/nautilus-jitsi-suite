@@ -21,7 +21,7 @@
         "@react-navigation/native": "0.0.0",
         "@react-navigation/stack": "0.0.0",
         "@stomp/stompjs": "0.0.0",
-        "@xmldom/xmldom": "0.0.0",
+        "@xmldom/xmldom": "0.8.10",
         "base64-js": "0.0.0",
         "dayjs": "0.0.0",
         "grapheme-splitter": "0.0.0",
