@@ -262,4 +262,4 @@ jobs:
           echo "❌ Deployment failed!"
           echo "📋 Check the logs above for details"
           exit 1
-        fi# Force workflow update - Fri Jun  6 18:09:52 -03 2025
+        fi
