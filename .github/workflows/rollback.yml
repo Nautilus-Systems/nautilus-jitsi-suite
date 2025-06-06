@@ -1,0 +1,87 @@
+name: Rollback Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      backup_timestamp:
+        description: 'Backup timestamp to rollback to (YYYYMMDD_HHMMSS)'
+        required: true
+        type: string
+      confirm_rollback:
+        description: 'Type "CONFIRM" to proceed with rollback'
+        required: true
+        type: string
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm_rollback == 'CONFIRM'
+    
+    steps:
+    - name: Validate inputs
+      run: |
+        if [[ ! "${{ github.event.inputs.backup_timestamp }}" =~ ^[0-9]{8}_[0-9]{6}$ ]]; then
+          echo "❌ Invalid backup timestamp format. Use: YYYYMMDD_HHMMSS"
+          exit 1
+        fi
+        
+    - name: Setup SSH
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.DROPLET_SSH_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+        ssh-keyscan -H ${{ secrets.DROPLET_HOST }} >> ~/.ssh/known_hosts
+        
+    - name: Execute rollback
+      run: |
+        cat > rollback.sh << 'EOF'
+        #!/bin/bash
+        set -e
+        
+        BACKUP_TIMESTAMP="${{ github.event.inputs.backup_timestamp }}"
+        BACKUP_DIR="/opt/backups/$BACKUP_TIMESTAMP"
+        JITSI_DIR="/opt/jitsi-meet"
+        JIBRI_DIR="/opt/jitsi/jibri"
+        
+        echo "🔄 Starting rollback to backup: $BACKUP_TIMESTAMP"
+        
+        if [ ! -d "$BACKUP_DIR" ]; then
+          echo "❌ Backup directory not found: $BACKUP_DIR"
+          echo "Available backups:"
+          ls -la /opt/backups/ || echo "No backups found"
+          exit 1
+        fi
+        
+        # Stop services
+        sudo systemctl stop nginx jibri jitsi-videobridge2 jicofo prosody
+        
+        # Rollback
+        if [ -d "$BACKUP_DIR/jitsi-meet-backup" ]; then
+          sudo rm -rf $JITSI_DIR
+          sudo cp -r $BACKUP_DIR/jitsi-meet-backup $JITSI_DIR
+          sudo chown -R root:root $JITSI_DIR
+        fi
+        
+        if [ -d "$BACKUP_DIR/jibri-backup" ]; then
+          sudo rm -rf $JIBRI_DIR
+          sudo cp -r $BACKUP_DIR/jibri-backup $JIBRI_DIR
+          sudo chown -R jibri:jibri $JIBRI_DIR
+        fi
+        
+        # Start services
+        sudo systemctl start prosody jicofo jitsi-videobridge2 jibri nginx
+        
+        echo "🎉 Rollback completed successfully!"
+        EOF
+        
+        chmod +x rollback.sh
+        scp -o StrictHostKeyChecking=no rollback.sh ${{ secrets.DROPLET_USER }}@${{ secrets.DROPLET_HOST }}:/tmp/
+        ssh -o StrictHostKeyChecking=no ${{ secrets.DROPLET_USER }}@${{ secrets.DROPLET_HOST }} \
+          "chmod +x /tmp/rollback.sh && sudo /tmp/rollback.sh"
+          
+    - name: Cleanup
+      if: always()
+      run: |
+        rm -f ~/.ssh/id_rsa
+        ssh ${{ secrets.DROPLET_USER }}@${{ secrets.DROPLET_HOST }} \
+          "sudo rm -f /tmp/rollback.sh" || true
