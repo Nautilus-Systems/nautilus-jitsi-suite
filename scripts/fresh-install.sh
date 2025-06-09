@@ -77,7 +77,7 @@ chown jibri:jibri /recordings/audio_recordings
 
 # Download and install Jibri
 echo "📦 Installing Jibri..."
-JIBRI_VERSION="8.0-139-g380a23a"
+JIBRI_VERSION="8.0-183-g7b406bf"
 JIBRI_URL="https://download.jitsi.org/stable/jibri_${JIBRI_VERSION}-1_all.deb"
 
 cd /tmp
