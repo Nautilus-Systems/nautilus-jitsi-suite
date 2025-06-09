@@ -6,8 +6,8 @@ echo "This script will help recover from deployment failures"
 echo ""
 
 # Check if running as root
-if [[ $EUID -eq 0 ]]; then
-   echo "❌ This script should not be run as root. Please run as a regular user with sudo privileges."
+if [[ $EUID -ne 0 ]]; then
+   echo "❌ This script must be run as root. Please run with sudo or as root user."
    exit 1
 fi
 
@@ -61,7 +61,7 @@ if id "jibri" &>/dev/null; then
 else
     echo "❌ jibri user does not exist"
     echo "🔧 Creating jibri user..."
-    sudo useradd -r -g audio -G audio,video,plugdev jibri || echo "Failed to create jibri user"
+    useradd -r -g audio -G audio,video,plugdev jibri || echo "Failed to create jibri user"
 fi
 
 echo ""
@@ -82,31 +82,31 @@ case $choice in
         for service in "${services[@]}"; do
             if systemctl is-active --quiet $service 2>/dev/null; then
                 echo "Stopping $service..."
-                sudo systemctl stop $service || true
+                systemctl stop $service || true
             fi
         done
         
         # Clean temporary files
-        sudo rm -rf /tmp/jibri-* /tmp/jitsi-* || true
+        rm -rf /tmp/jibri-* /tmp/jitsi-* || true
         
         # Restart core services
         if [ "$JITSI_INSTALLED" = true ]; then
             echo "Starting Jitsi services..."
-            sudo systemctl start prosody || echo "Failed to start prosody"
+            systemctl start prosody || echo "Failed to start prosody"
             sleep 2
-            sudo systemctl start jicofo || echo "Failed to start jicofo"
+            systemctl start jicofo || echo "Failed to start jicofo"
             sleep 2
-            sudo systemctl start jitsi-videobridge2 || echo "Failed to start jitsi-videobridge2"
+            systemctl start jitsi-videobridge2 || echo "Failed to start jitsi-videobridge2"
         fi
         
         if [ "$JIBRI_INSTALLED" = true ]; then
             echo "Starting Jibri..."
-            sudo systemctl start jibri || echo "Failed to start jibri"
+            systemctl start jibri || echo "Failed to start jibri"
         fi
         
         if [ "$NGINX_INSTALLED" = true ]; then
             echo "Starting nginx..."
-            sudo systemctl start nginx || echo "Failed to start nginx"
+            systemctl start nginx || echo "Failed to start nginx"
         fi
         
         echo "✅ Service restart complete"
@@ -117,14 +117,14 @@ case $choice in
         
         # Create jibri user if needed
         if ! id "jibri" &>/dev/null; then
-            sudo useradd -r -g audio -G audio,video,plugdev jibri
+            useradd -r -g audio -G audio,video,plugdev jibri
         fi
         
         # Create directories
-        sudo mkdir -p /opt/jibri /usr/share/jibri /etc/jitsi/jibri /var/log/jibri /tmp/jibri-recordings /recordings/audio_recordings
+        mkdir -p /opt/jibri /usr/share/jibri /etc/jitsi/jibri /var/log/jibri /tmp/jibri-recordings /recordings/audio_recordings
         
         # Fix ownership
-        sudo chown jibri:jibri /opt/jibri /usr/share/jibri /etc/jitsi/jibri /var/log/jibri /tmp/jibri-recordings /recordings/audio_recordings 2>/dev/null || true
+        chown jibri:jibri /opt/jibri /usr/share/jibri /etc/jitsi/jibri /var/log/jibri /tmp/jibri-recordings /recordings/audio_recordings 2>/dev/null || true
         
         echo "✅ jibri user and permissions fixed"
         ;;
@@ -137,19 +137,19 @@ case $choice in
             
             # Stop services
             for service in "${services[@]}"; do
-                sudo systemctl stop $service || true
-                sudo systemctl disable $service || true
+                systemctl stop $service || true
+                systemctl disable $service || true
             done
             
             # Remove packages
-            sudo apt remove --purge -y jitsi-meet jibri prosody jicofo jitsi-videobridge2 || true
-            sudo apt autoremove -y || true
+            apt remove --purge -y jitsi-meet jibri prosody jicofo jitsi-videobridge2 || true
+            apt autoremove -y || true
             
             # Remove configurations
-            sudo rm -rf /etc/jitsi /etc/prosody /usr/share/jitsi-meet /opt/jibri /usr/share/jibri || true
+            rm -rf /etc/jitsi /etc/prosody /usr/share/jitsi-meet /opt/jibri /usr/share/jibri || true
             
             # Remove jibri user
-            sudo userdel jibri || true
+            userdel jibri || true
             
             echo "✅ Cleanup complete"
             echo "📝 Run the fresh installation script next:"
@@ -163,19 +163,19 @@ case $choice in
         echo "📋 Checking logs..."
         echo ""
         echo "=== Prosody logs ==="
-        sudo journalctl -u prosody --no-pager -n 20 || echo "No prosody logs"
+        journalctl -u prosody --no-pager -n 20 || echo "No prosody logs"
         echo ""
         echo "=== Jicofo logs ==="
-        sudo journalctl -u jicofo --no-pager -n 20 || echo "No jicofo logs"
+        journalctl -u jicofo --no-pager -n 20 || echo "No jicofo logs"
         echo ""
         echo "=== JVB logs ==="
-        sudo journalctl -u jitsi-videobridge2 --no-pager -n 20 || echo "No JVB logs"
+        journalctl -u jitsi-videobridge2 --no-pager -n 20 || echo "No JVB logs"
         echo ""
         echo "=== Jibri logs ==="
-        sudo journalctl -u jibri --no-pager -n 20 || echo "No jibri logs"
+        journalctl -u jibri --no-pager -n 20 || echo "No jibri logs"
         echo ""
         echo "=== Nginx logs ==="
-        sudo tail -20 /var/log/nginx/error.log 2>/dev/null || echo "No nginx error logs"
+        tail -20 /var/log/nginx/error.log 2>/dev/null || echo "No nginx error logs"
         ;;
         
     5)

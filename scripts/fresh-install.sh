@@ -4,8 +4,8 @@ set -e
 echo "🚀 Setting up fresh Jitsi Meet + Jibri installation..."
 
 # Check if running as root
-if [[ $EUID -eq 0 ]]; then
-   echo "❌ This script should not be run as root. Please run as a regular user with sudo privileges."
+if [[ $EUID -ne 0 ]]; then
+   echo "❌ This script must be run as root. Please run with sudo or as root user."
    exit 1
 fi
 
@@ -20,11 +20,11 @@ echo ""
 
 # Update system
 echo "📦 Updating system packages..."
-sudo apt update && sudo apt upgrade -y
+apt update && apt upgrade -y
 
 # Install required packages
 echo "📦 Installing required packages..."
-sudo apt install -y \
+apt install -y \
     curl \
     wget \
     gnupg2 \
@@ -39,41 +39,41 @@ sudo apt install -y \
 
 # Add Jitsi repository
 echo "📦 Adding Jitsi repository..."
-curl -fsSL https://download.jitsi.org/jitsi-key.gpg.key | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/jitsi-key.gpg
-echo 'deb https://download.jitsi.org stable/' | sudo tee /etc/apt/sources.list.d/jitsi-stable.list
+curl -fsSL https://download.jitsi.org/jitsi-key.gpg.key | gpg --dearmor -o /etc/apt/trusted.gpg.d/jitsi-key.gpg
+echo 'deb https://download.jitsi.org stable/' | tee /etc/apt/sources.list.d/jitsi-stable.list
 
 # Update package list
-sudo apt update
+apt update
 
 # Pre-configure Jitsi Meet installation
 echo "🔧 Pre-configuring Jitsi Meet..."
-echo "jitsi-meet-web-config jitsi-meet/jvb-hostname string $DOMAIN" | sudo debconf-set-selections
-echo "jitsi-meet-web-config jitsi-meet/jvb-serve boolean true" | sudo debconf-set-selections
+echo "jitsi-meet-web-config jitsi-meet/jvb-hostname string $DOMAIN" | debconf-set-selections
+echo "jitsi-meet-web-config jitsi-meet/jvb-serve boolean true" | debconf-set-selections
 
 # Install Jitsi Meet
 echo "📦 Installing Jitsi Meet..."
-sudo apt install -y jitsi-meet
+apt install -y jitsi-meet
 
 # Create jibri user
 echo "👤 Creating jibri user..."
-sudo useradd -r -g audio -G audio,video,plugdev jibri || echo "User jibri already exists"
+useradd -r -g audio -G audio,video,plugdev jibri || echo "User jibri already exists"
 
 # Create directories
 echo "📁 Creating directories..."
-sudo mkdir -p /opt/jibri
-sudo mkdir -p /usr/share/jibri
-sudo mkdir -p /etc/jitsi/jibri
-sudo mkdir -p /var/log/jibri
-sudo mkdir -p /tmp/jibri-recordings
-sudo mkdir -p /recordings/audio_recordings
+mkdir -p /opt/jibri
+mkdir -p /usr/share/jibri
+mkdir -p /etc/jitsi/jibri
+mkdir -p /var/log/jibri
+mkdir -p /tmp/jibri-recordings
+mkdir -p /recordings/audio_recordings
 
 # Set ownership
-sudo chown jibri:jibri /opt/jibri
-sudo chown jibri:jibri /usr/share/jibri
-sudo chown jibri:jibri /etc/jitsi/jibri
-sudo chown jibri:jibri /var/log/jibri
-sudo chown jibri:jibri /tmp/jibri-recordings
-sudo chown jibri:jibri /recordings/audio_recordings
+chown jibri:jibri /opt/jibri
+chown jibri:jibri /usr/share/jibri
+chown jibri:jibri /etc/jitsi/jibri
+chown jibri:jibri /var/log/jibri
+chown jibri:jibri /tmp/jibri-recordings
+chown jibri:jibri /recordings/audio_recordings
 
 # Download and install Jibri
 echo "📦 Installing Jibri..."
@@ -82,11 +82,11 @@ JIBRI_URL="https://download.jitsi.org/stable/jibri_${JIBRI_VERSION}-1_all.deb"
 
 cd /tmp
 wget $JIBRI_URL -O jibri.deb
-sudo dpkg -i jibri.deb || sudo apt-get -f install -y
+dpkg -i jibri.deb || apt-get -f install -y
 
 # Configure Jibri
 echo "🔧 Configuring Jibri..."
-sudo cat > /etc/jitsi/jibri/jibri.conf << 'EOF'
+cat > /etc/jitsi/jibri/jibri.conf << 'EOF'
 jibri {
   recording {
     recordings-directory = "/tmp/jibri-recordings"
@@ -132,7 +132,7 @@ jibri {
 EOF
 
 # Create Jibri systemd service
-sudo cat > /etc/systemd/system/jibri.service << 'EOF'
+cat > /etc/systemd/system/jibri.service << 'EOF'
 [Unit]
 Description=Jibri
 After=network.target
@@ -152,7 +152,7 @@ WantedBy=multi-user.target
 EOF
 
 # Create Jibri startup script
-sudo cat > /opt/jibri/jibri.sh << 'EOF'
+cat > /opt/jibri/jibri.sh << 'EOF'
 #!/bin/bash
 export DISPLAY=:0
 cd /usr/share/jibri
@@ -161,11 +161,11 @@ exec java -Djava.util.logging.config.file=/etc/jitsi/jibri/logging.properties \
      -jar jibri.jar
 EOF
 
-sudo chmod +x /opt/jibri/jibri.sh
-sudo chown jibri:jibri /opt/jibri/jibri.sh
+chmod +x /opt/jibri/jibri.sh
+chown jibri:jibri /opt/jibri/jibri.sh
 
 # Create logging configuration
-sudo cat > /etc/jitsi/jibri/logging.properties << 'EOF'
+cat > /etc/jitsi/jibri/logging.properties << 'EOF'
 handlers= java.util.logging.ConsoleHandler
 
 .level = INFO
@@ -179,7 +179,7 @@ echo "🔧 Configuring XMPP for Jibri..."
 JICOFO_CONFIG="/etc/jitsi/jicofo/jicofo.conf"
 if [ -f "$JICOFO_CONFIG" ]; then
     # Add Jibri brewery configuration to jicofo
-    sudo tee -a "$JICOFO_CONFIG" << EOF
+    tee -a "$JICOFO_CONFIG" << EOF
 
 # Jibri configuration
 jicofo {
@@ -195,7 +195,7 @@ fi
 PROSODY_CONFIG="/etc/prosody/conf.avail/$DOMAIN.cfg.lua"
 if [ -f "$PROSODY_CONFIG" ]; then
     echo "🔧 Configuring Prosody for Jibri..."
-    sudo tee -a "$PROSODY_CONFIG" << EOF
+    tee -a "$PROSODY_CONFIG" << EOF
 
 -- Jibri recorder virtual host
 VirtualHost "recorder.$DOMAIN"
@@ -216,8 +216,8 @@ Component "internal.auth.$DOMAIN" "muc"
 EOF
 
     # Add Jibri user to Prosody
-    sudo prosodyctl register jibri auth.$DOMAIN jibripass
-    sudo prosodyctl register recorder recorder.$DOMAIN recorderpass
+    prosodyctl register jibri auth.$DOMAIN jibripass
+    prosodyctl register recorder recorder.$DOMAIN recorderpass
 fi
 
 # Configure Jitsi Meet for recording
@@ -225,7 +225,7 @@ echo "🔧 Configuring Jitsi Meet for recording..."
 JITSI_CONFIG="/etc/jitsi/meet/$DOMAIN-config.js"
 if [ -f "$JITSI_CONFIG" ]; then
     # Add recording configuration
-    sudo sed -i "/var config = {/a\\
+    sed -i "/var config = {/a\\
     // Recording configuration\\
     fileRecordingsEnabled: true,\\
     liveStreamingEnabled: false,\\
@@ -234,39 +234,39 @@ fi
 
 # Reload systemd and restart services
 echo "🔄 Restarting services..."
-sudo systemctl daemon-reload
-sudo systemctl restart prosody
-sudo systemctl restart jicofo
-sudo systemctl restart jitsi-videobridge2
-sudo systemctl enable jibri
-sudo systemctl start jibri
+systemctl daemon-reload
+systemctl restart prosody
+systemctl restart jicofo
+systemctl restart jitsi-videobridge2
+systemctl enable jibri
+systemctl start jibri
 
 # Configure nginx for larger file uploads
 echo "🔧 Configuring nginx..."
-sudo sed -i '/http {/a \    client_max_body_size 100M;' /etc/nginx/nginx.conf
-sudo systemctl reload nginx
+sed -i '/http {/a \    client_max_body_size 100M;' /etc/nginx/nginx.conf
+systemctl reload nginx
 
 # Display status
 echo ""
 echo "🎉 Installation completed!"
 echo ""
 echo "📋 Service Status:"
-sudo systemctl is-active --quiet prosody && echo "✅ Prosody: Running" || echo "❌ Prosody: Failed"
-sudo systemctl is-active --quiet jicofo && echo "✅ Jicofo: Running" || echo "❌ Jicofo: Failed"
-sudo systemctl is-active --quiet jitsi-videobridge2 && echo "✅ JVB: Running" || echo "✅ JVB: Running"
-sudo systemctl is-active --quiet jibri && echo "✅ Jibri: Running" || echo "❌ Jibri: Failed"
-sudo systemctl is-active --quiet nginx && echo "✅ Nginx: Running" || echo "❌ Nginx: Failed"
+systemctl is-active --quiet prosody && echo "✅ Prosody: Running" || echo "❌ Prosody: Failed"
+systemctl is-active --quiet jicofo && echo "✅ Jicofo: Running" || echo "❌ Jicofo: Failed"
+systemctl is-active --quiet jitsi-videobridge2 && echo "✅ JVB: Running" || echo "✅ JVB: Running"
+systemctl is-active --quiet jibri && echo "✅ Jibri: Running" || echo "❌ Jibri: Failed"
+systemctl is-active --quiet nginx && echo "✅ Nginx: Running" || echo "❌ Nginx: Failed"
 
 echo ""
 echo "🌐 Access your Jitsi Meet at: http://$DOMAIN"
 echo ""
 echo "📝 Next steps:"
-echo "1. Configure SSL/TLS certificate with: sudo /usr/share/jitsi-meet/scripts/install-letsencrypt-cert.sh"
+echo "1. Configure SSL/TLS certificate with: /usr/share/jitsi-meet/scripts/install-letsencrypt-cert.sh"
 echo "2. Configure your domain in DNS if using a custom domain"
 echo "3. Deploy your audio recording features using the GitHub workflow"
 echo ""
 echo "🔍 Troubleshooting:"
-echo "- Logs: sudo journalctl -u jibri -f"
+echo "- Logs: journalctl -u jibri -f"
 echo "- Config: /etc/jitsi/jibri/jibri.conf"
 echo "- Recordings: /tmp/jibri-recordings"
 echo "" 
