@@ -56,7 +56,7 @@ apt install -y jitsi-meet
 
 # Create jibri user
 echo "👤 Creating jibri user..."
-useradd -r -g audio -G audio,video,plugdev jibri || echo "User jibri already exists"
+groupadd -f jibri || echo "jibri group already exists"; useradd -r -g jibri -G audio,video,plugdev jibri || echo "User jibri already exists"
 
 # Create directories
 echo "📁 Creating directories..."
