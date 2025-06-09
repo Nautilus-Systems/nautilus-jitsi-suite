@@ -244,7 +244,26 @@ systemctl start jibri
 # Configure nginx for larger file uploads
 echo "🔧 Configuring nginx..."
 sed -i '/http {/a \    client_max_body_size 100M;' /etc/nginx/nginx.conf
-systemctl reload nginx
+# Enable and start nginx if not running
+if ! systemctl is-enabled --quiet nginx; then
+    echo "   Enabling nginx to start on boot..."
+    systemctl enable nginx
+fi
+
+if ! systemctl is-active --quiet nginx; then
+    echo "   Starting nginx..."
+    systemctl start nginx || echo "❌ Failed to start nginx"
+fi
+
+if systemctl is-active --quiet nginx; then
+    echo "   Reloading nginx configuration..."
+    systemctl reload nginx || echo "❌ Failed to reload nginx"
+else
+    echo "❌ nginx is not running, checking for errors..."
+    systemctl status nginx --no-pager -l
+    echo "   Checking nginx configuration..."
+    nginx -t
+fi
 
 # Display status
 echo ""
